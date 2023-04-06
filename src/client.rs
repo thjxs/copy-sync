@@ -163,13 +163,13 @@ pub async fn connect(addr: String) {
 
     let handler = {
         read.for_each(|message| async {
-            let mut client_state = state.lock().unwrap();
             let message = message.unwrap();
             match message {
                 Message::Text(text) => {
                     handle_text_message(text, state.clone());
                 }
                 Message::Binary(binary) => {
+                    let mut client_state = state.lock().unwrap();
                     let mut clipboard = Clipboard::new().unwrap();
 
                     let image = ImageData {
