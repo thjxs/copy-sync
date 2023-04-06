@@ -46,27 +46,8 @@ struct ClipboardMessage {
     payload: ClipboardMessagePayload,
 }
 
-fn create_text_message(text: String) -> String {
-    let raw = ClipboardMessageText {
-        content: text.to_string(),
-    };
-
-    let message = ClipboardMessage {
-        payload: ClipboardMessagePayload::Text(raw),
-    };
-
-    serde_json::to_string(&message).unwrap()
-}
-
-fn create_image_message(image: &ImageData) -> String {
-    let raw = ClipboardMessageImage {
-        width: image.width,
-        height: image.height,
-    };
-
-    let message = ClipboardMessage {
-        payload: ClipboardMessagePayload::Image(raw),
-    };
+fn serialize_clipboard_message(payload: ClipboardMessagePayload) -> String {
+    let message = ClipboardMessage { payload };
 
     serde_json::to_string(&message).unwrap()
 }
@@ -81,7 +62,12 @@ async fn check_clipboard(sender: UnboundedSender<Message>, state: Arc<Mutex<Clie
             Ok(current) => {
                 if let ClipboardCache::Image(image) = &state.cache {
                     if image.bytes != current.bytes {
-                        let payload = create_image_message(&current);
+                        let payload = serialize_clipboard_message(ClipboardMessagePayload::Image(
+                            ClipboardMessageImage {
+                                width: image.width,
+                                height: image.height,
+                            },
+                        ));
                         sender.unbounded_send(Message::Text(payload)).unwrap();
                         sender
                             .unbounded_send(Message::Binary(current.bytes.to_vec()))
@@ -89,7 +75,12 @@ async fn check_clipboard(sender: UnboundedSender<Message>, state: Arc<Mutex<Clie
                         state.cache = ClipboardCache::Image(current);
                     }
                 } else {
-                    let payload = create_image_message(&current);
+                    let payload = serialize_clipboard_message(ClipboardMessagePayload::Image(
+                        ClipboardMessageImage {
+                            width: current.width,
+                            height: current.height,
+                        },
+                    ));
                     sender.unbounded_send(Message::Text(payload)).unwrap();
                     sender
                         .unbounded_send(Message::Binary(current.bytes.to_vec()))
@@ -103,12 +94,20 @@ async fn check_clipboard(sender: UnboundedSender<Message>, state: Arc<Mutex<Clie
                     Ok(current) => {
                         if let ClipboardCache::Text(text) = &state.cache {
                             if text != &current {
-                                let payload = create_text_message(current.to_string());
+                                let payload = serialize_clipboard_message(
+                                    ClipboardMessagePayload::Text(ClipboardMessageText {
+                                        content: current.to_string(),
+                                    }),
+                                );
                                 sender.unbounded_send(Message::Text(payload)).unwrap();
                                 state.cache = ClipboardCache::Text(current);
                             }
                         } else {
-                            let payload = create_text_message(current.to_string());
+                            let payload = serialize_clipboard_message(
+                                ClipboardMessagePayload::Text(ClipboardMessageText {
+                                    content: current.to_string(),
+                                }),
+                            );
                             sender.unbounded_send(Message::Text(payload)).unwrap();
                             state.cache = ClipboardCache::Text(current);
                         }
