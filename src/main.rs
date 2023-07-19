@@ -1,6 +1,7 @@
 use std::io;
 
 pub mod client;
+pub mod config;
 pub mod server;
 
 use clap::{Parser, Subcommand};

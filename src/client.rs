@@ -8,9 +8,11 @@ use futures_channel::mpsc::UnboundedSender;
 use futures_util::{future::select, pin_mut, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::spawn;
-use tokio_tungstenite::connect_async;
+use tokio_tungstenite::connect_async_with_config;
 use tungstenite::Message;
 use ulid::Ulid;
+
+use crate::config::WEB_SOCKET_CONFIG;
 
 enum ClipboardCache<'a> {
     Text(String),
@@ -154,7 +156,9 @@ pub async fn connect(addr: String) {
 
     let (tx, rx) = futures_channel::mpsc::unbounded();
 
-    let (ws, _) = connect_async(addr).await.expect("Failed to connect");
+    let (ws, _) = connect_async_with_config(addr, Some(WEB_SOCKET_CONFIG))
+        .await
+        .expect("Failed to connect");
 
     let (write, read) = ws.split();
 
