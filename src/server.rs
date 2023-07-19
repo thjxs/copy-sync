@@ -7,15 +7,19 @@ use std::{
 use futures_channel::mpsc::UnboundedSender;
 use futures_util::{StreamExt, TryStreamExt};
 use tokio::net::TcpStream;
-use tokio_tungstenite::accept_async;
+use tokio_tungstenite::accept_async_with_config;
 use tungstenite::Message;
+
+use crate::config::WEB_SOCKET_CONFIG;
 
 type UnboundedMessage = UnboundedSender<Message>;
 
 type PeerMap = Arc<Mutex<HashMap<SocketAddr, UnboundedMessage>>>;
 
 pub async fn handle_connection(map: PeerMap, raw_stream: TcpStream, addr: SocketAddr) {
-    let ws = accept_async(raw_stream).await.expect("whoops");
+    let ws = accept_async_with_config(raw_stream, Some(WEB_SOCKET_CONFIG))
+        .await
+        .expect("whoops");
 
     let (tx, rx) = futures_channel::mpsc::unbounded();
 
