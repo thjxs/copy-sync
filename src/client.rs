@@ -1,12 +1,13 @@
+use arboard::{Clipboard, ImageData};
+use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
+use futures_channel::mpsc::UnboundedSender;
+use futures_util::{future::select, pin_mut, StreamExt};
+use serde::{Deserialize, Serialize};
+use std::io::prelude::*;
 use std::{
     borrow::Cow,
     sync::{Arc, Mutex},
 };
-
-use arboard::{Clipboard, ImageData};
-use futures_channel::mpsc::UnboundedSender;
-use futures_util::{future::select, pin_mut, StreamExt};
-use serde::{Deserialize, Serialize};
 use tokio::spawn;
 use tokio_tungstenite::connect_async_with_config;
 use tungstenite::Message;
@@ -48,6 +49,19 @@ struct ClipboardMessage {
     payload: ClipboardMessagePayload,
 }
 
+fn encode(bytes: Vec<u8>) -> Vec<u8> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&bytes[..]).unwrap();
+    encoder.finish().unwrap()
+}
+
+fn decode(bytes: Vec<u8>) -> Vec<u8> {
+    let mut decoder = ZlibDecoder::new(&bytes[..]);
+    let mut decoded_bytes = Vec::new();
+    decoder.read_to_end(&mut decoded_bytes).unwrap();
+    decoded_bytes
+}
+
 fn serialize_clipboard_message(payload: ClipboardMessagePayload) -> String {
     let message = ClipboardMessage { payload };
 
@@ -63,56 +77,39 @@ async fn check_clipboard(sender: UnboundedSender<Message>, state: Arc<Mutex<Clie
         match current {
             Ok(current) => {
                 if let ClipboardCache::Image(image) = &state.cache {
-                    if image.bytes != current.bytes {
-                        let payload = serialize_clipboard_message(ClipboardMessagePayload::Image(
-                            ClipboardMessageImage {
-                                width: image.width,
-                                height: image.height,
-                            },
-                        ));
-                        sender.unbounded_send(Message::Text(payload)).unwrap();
-                        sender
-                            .unbounded_send(Message::Binary(current.bytes.to_vec()))
-                            .unwrap();
-                        state.cache = ClipboardCache::Image(current);
+                    if image.bytes == current.bytes {
+                        continue;
                     }
-                } else {
-                    let payload = serialize_clipboard_message(ClipboardMessagePayload::Image(
-                        ClipboardMessageImage {
-                            width: current.width,
-                            height: current.height,
-                        },
-                    ));
-                    sender.unbounded_send(Message::Text(payload)).unwrap();
-                    sender
-                        .unbounded_send(Message::Binary(current.bytes.to_vec()))
-                        .unwrap();
-                    state.cache = ClipboardCache::Image(current);
                 }
+                let payload = serialize_clipboard_message(ClipboardMessagePayload::Image(
+                    ClipboardMessageImage {
+                        width: current.width,
+                        height: current.height,
+                    },
+                ));
+                sender.unbounded_send(Message::Text(payload)).unwrap();
+                // compress image
+                sender
+                    .unbounded_send(Message::Binary(encode(current.bytes.to_vec())))
+                    .unwrap();
+                state.cache = ClipboardCache::Image(current);
             }
             Err(arboard::Error::ContentNotAvailable) => {
                 let current = clipboard.get_text();
                 match current {
                     Ok(current) => {
                         if let ClipboardCache::Text(text) = &state.cache {
-                            if text != &current {
-                                let payload = serialize_clipboard_message(
-                                    ClipboardMessagePayload::Text(ClipboardMessageText {
-                                        content: current.to_string(),
-                                    }),
-                                );
-                                sender.unbounded_send(Message::Text(payload)).unwrap();
-                                state.cache = ClipboardCache::Text(current);
+                            if text == &current {
+                                continue;
                             }
-                        } else {
-                            let payload = serialize_clipboard_message(
-                                ClipboardMessagePayload::Text(ClipboardMessageText {
-                                    content: current.to_string(),
-                                }),
-                            );
-                            sender.unbounded_send(Message::Text(payload)).unwrap();
-                            state.cache = ClipboardCache::Text(current);
                         }
+                        let payload = serialize_clipboard_message(ClipboardMessagePayload::Text(
+                            ClipboardMessageText {
+                                content: current.to_string(),
+                            },
+                        ));
+                        sender.unbounded_send(Message::Text(payload)).unwrap();
+                        state.cache = ClipboardCache::Text(current);
                     }
                     Err(_) => {}
                 }
@@ -174,11 +171,12 @@ pub async fn connect(addr: String) {
                 Message::Binary(binary) => {
                     let mut client_state = state.lock().unwrap();
                     let mut clipboard = Clipboard::new().unwrap();
+                    let bytes = decode(binary);
 
                     let image = ImageData {
                         width: client_state.image_info.width,
                         height: client_state.image_info.height,
-                        bytes: Cow::from(binary),
+                        bytes: Cow::from(bytes),
                     };
                     clipboard.set_image(image.clone()).unwrap();
                     client_state.cache = ClipboardCache::Image(image);

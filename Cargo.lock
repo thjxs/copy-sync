@@ -240,6 +240,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "clap",
+ "flate2",
  "futures-channel",
  "futures-util",
  "serde",
