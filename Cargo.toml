@@ -9,6 +9,7 @@ authors = ["tan"]
 [dependencies]
 arboard = "3.2.0"
 clap = { version = "4.1.8", features = ["derive"] }
+flate2 = "1.0.26"
 futures-channel = "0.3.26"
 futures-util = "0.3.26"
 serde = { version = "1.0.159", features = ["derive"] }
