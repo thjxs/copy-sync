@@ -2,6 +2,7 @@ use std::io;
 
 pub mod client;
 pub mod config;
+pub mod notify;
 pub mod server;
 
 use clap::{Parser, Subcommand};

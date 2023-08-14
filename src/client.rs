@@ -14,6 +14,7 @@ use tungstenite::Message;
 use ulid::Ulid;
 
 use crate::config::WEB_SOCKET_CONFIG;
+use crate::notify::send_message;
 
 enum ClipboardCache<'a> {
     Text(String),
@@ -186,6 +187,7 @@ pub async fn connect(addr: String) {
                         println!("set image error: {:?}", result);
                     }
                     client_state.cache = ClipboardCache::Image(image);
+                    send_message(&format!("image: width: {}, height: {}", client_state.image_info.width, client_state.image_info.height));
                 }
                 _ => {
                     println!("unknow, {}", message);
