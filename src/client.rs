@@ -14,6 +14,7 @@ use tungstenite::Message;
 use ulid::Ulid;
 
 use crate::config::WEB_SOCKET_CONFIG;
+use crate::notify::send_message;
 
 enum ClipboardCache<'a> {
     Text(String),
@@ -136,9 +137,13 @@ fn handle_text_message(clipboard_message: String, state: Arc<Mutex<ClientState>>
                 println!("set text error: {:?}", result);
             }
             state.cache = ClipboardCache::Text(payload.content);
+            state.id = generate_ulid();
+            state.timestamp = 0;
         }
         ClipboardMessagePayload::Image(payload) => {
             state.image_info = payload;
+            state.id = generate_ulid();
+            state.timestamp = 0;
         }
     }
 }
@@ -186,6 +191,7 @@ pub async fn connect(addr: String) {
                         println!("set image error: {:?}", result);
                     }
                     client_state.cache = ClipboardCache::Image(image);
+                    send_message(&format!("W: {} H: {}", client_state.image_info.width, client_state.image_info.height));
                 }
                 _ => {
                     println!("unknow, {}", message);
