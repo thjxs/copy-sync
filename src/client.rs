@@ -187,7 +187,7 @@ pub async fn connect(addr: String) {
                         println!("set image error: {:?}", result);
                     }
                     client_state.cache = ClipboardCache::Image(image);
-                    send_message(&format!("size: {}x{}", client_state.image_info.width, client_state.image_info.height));
+                    send_message(&format!("{} x {} px", client_state.image_info.width, client_state.image_info.height));
                 }
                 _ => {
                     println!("unknow, {}", message);
