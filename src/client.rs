@@ -131,7 +131,10 @@ fn handle_text_message(clipboard_message: String, state: Arc<Mutex<ClientState>>
     match deserialized.payload {
         ClipboardMessagePayload::Text(payload) => {
             let mut clipboard = Clipboard::new().unwrap();
-            clipboard.set_text(payload.content.to_string()).unwrap();
+            let result = clipboard.set_text(&payload.content);
+            if result.is_err() {
+                println!("set text error: {:?}", result);
+            }
             state.cache = ClipboardCache::Text(payload.content);
         }
         ClipboardMessagePayload::Image(payload) => {
@@ -178,7 +181,10 @@ pub async fn connect(addr: String) {
                         height: client_state.image_info.height,
                         bytes: Cow::from(bytes),
                     };
-                    clipboard.set_image(image.clone()).unwrap();
+                    let result = clipboard.set_image(image.clone());
+                    if result.is_err() {
+                        println!("set image error: {:?}", result);
+                    }
                     client_state.cache = ClipboardCache::Image(image);
                 }
                 _ => {
