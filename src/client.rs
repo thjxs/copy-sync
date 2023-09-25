@@ -8,8 +8,9 @@ use std::{
     borrow::Cow,
     sync::{Arc, Mutex},
 };
+use tokio::net::TcpStream;
 use tokio::spawn;
-use tokio_tungstenite::connect_async_with_config;
+use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStream};
 use tungstenite::Message;
 use ulid::Ulid;
 
@@ -148,7 +149,7 @@ fn handle_text_message(clipboard_message: String, state: Arc<Mutex<ClientState>>
     }
 }
 
-pub async fn connect(addr: String) {
+async fn run(ws: WebSocketStream<MaybeTlsStream<TcpStream>>) {
     let state = Arc::new(Mutex::new(ClientState {
         cache: ClipboardCache::Text(String::new()),
         image_info: ClipboardMessageImage {
@@ -160,10 +161,6 @@ pub async fn connect(addr: String) {
     }));
 
     let (tx, rx) = futures_channel::mpsc::unbounded();
-
-    let (ws, _) = connect_async_with_config(addr, Some(WEB_SOCKET_CONFIG))
-        .await
-        .expect("Failed to connect");
 
     let (write, read) = ws.split();
 
@@ -191,7 +188,8 @@ pub async fn connect(addr: String) {
                         println!("set image error: {:?}", result);
                     }
                     client_state.cache = ClipboardCache::Image(image);
-                    send_message(&format!("W: {} H: {}", client_state.image_info.width, client_state.image_info.height));
+                    let info = &client_state.image_info;
+                    send_message(&format!("W: {} H: {}", info.width, info.height));
                 }
                 _ => {
                     println!("unknow, {}", message);
@@ -205,4 +203,22 @@ pub async fn connect(addr: String) {
     pin_mut!(forward_ws, handler);
 
     select(forward_ws, handler).await;
+}
+
+pub async fn start(addr: String) {
+    loop {
+        let result = connect_async_with_config(addr.clone(), Some(WEB_SOCKET_CONFIG)).await;
+        match result {
+            Ok((ws, _)) => {
+                println!("Connected: {}", addr);
+                run(ws).await;
+            }
+            Err(err) => {
+                println!("{:?}", err);
+                // reconnect every 60 seconds
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                println!("Reconnecting: {}...", addr);
+            }
+        }
+    }
 }

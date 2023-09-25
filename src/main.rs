@@ -31,9 +31,7 @@ async fn main() -> Result<(), io::Error> {
 
     match cli.command {
         Some(Commands::Start { port }) => server::start(port).await,
-        Some(Commands::Connect { addr }) => {
-            client::connect(addr).await;
-        }
+        Some(Commands::Connect { addr }) => client::start(addr).await,
         None => {}
     }
 
