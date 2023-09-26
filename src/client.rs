@@ -14,8 +14,8 @@ use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStre
 use tungstenite::Message;
 use ulid::Ulid;
 
-use crate::config::WEB_SOCKET_CONFIG;
-use crate::notify::send_message;
+use crate::config::{RETRY_CONNECT_INTERVAL_IN_SECONDS, WEB_SOCKET_CONFIG};
+use crate::notify::notify;
 
 enum ClipboardCache<'a> {
     Text(String),
@@ -126,25 +126,48 @@ fn generate_ulid() -> String {
     ulid.to_string()
 }
 
-fn handle_text_message(clipboard_message: String, state: Arc<Mutex<ClientState>>) {
+fn handle_message(message: Message, state: Arc<Mutex<ClientState>>) {
     let mut state = state.lock().unwrap();
-
-    let deserialized: ClipboardMessage = serde_json::from_str(&clipboard_message).unwrap();
-    match deserialized.payload {
-        ClipboardMessagePayload::Text(payload) => {
-            let mut clipboard = Clipboard::new().unwrap();
-            let result = clipboard.set_text(&payload.content);
-            if result.is_err() {
-                println!("set text error: {:?}", result);
+    match message {
+        Message::Text(text) => {
+            let deserialized: ClipboardMessage = serde_json::from_str(&text).unwrap();
+            match deserialized.payload {
+                ClipboardMessagePayload::Text(payload) => {
+                    let mut clipboard = Clipboard::new().unwrap();
+                    let result = clipboard.set_text(&payload.content);
+                    if result.is_err() {
+                        println!("set text error: {:?}", result);
+                    }
+                    state.cache = ClipboardCache::Text(payload.content);
+                    state.id = generate_ulid();
+                    state.timestamp = 0;
+                }
+                ClipboardMessagePayload::Image(payload) => {
+                    state.image_info = payload;
+                    state.id = generate_ulid();
+                    state.timestamp = 0;
+                }
             }
-            state.cache = ClipboardCache::Text(payload.content);
-            state.id = generate_ulid();
-            state.timestamp = 0;
         }
-        ClipboardMessagePayload::Image(payload) => {
-            state.image_info = payload;
-            state.id = generate_ulid();
-            state.timestamp = 0;
+        Message::Binary(binary) => {
+            let mut clipboard = Clipboard::new().unwrap();
+            let bytes = decode(binary);
+
+            let image = ImageData {
+                width: state.image_info.width,
+                height: state.image_info.height,
+                bytes: Cow::from(bytes),
+            };
+            let result = clipboard.set_image(image.clone());
+            if result.is_err() {
+                println!("set image error: {:?}", result);
+            }
+            state.cache = ClipboardCache::Image(image);
+            let info = &state.image_info;
+            notify(&format!("W: {} H: {}", info.width, info.height));
+        }
+        _ => {
+            println!("unknow, {}", message);
         }
     }
 }
@@ -168,46 +191,29 @@ async fn run(ws: WebSocketStream<MaybeTlsStream<TcpStream>>) {
 
     let handler = {
         read.for_each(|message| async {
-            let message = message.unwrap();
             match message {
-                Message::Text(text) => {
-                    handle_text_message(text, state.clone());
+                Ok(message) => {
+                    handle_message(message, state.clone());
                 }
-                Message::Binary(binary) => {
-                    let mut client_state = state.lock().unwrap();
-                    let mut clipboard = Clipboard::new().unwrap();
-                    let bytes = decode(binary);
-
-                    let image = ImageData {
-                        width: client_state.image_info.width,
-                        height: client_state.image_info.height,
-                        bytes: Cow::from(bytes),
-                    };
-                    let result = clipboard.set_image(image.clone());
-                    if result.is_err() {
-                        println!("set image error: {:?}", result);
-                    }
-                    client_state.cache = ClipboardCache::Image(image);
-                    let info = &client_state.image_info;
-                    send_message(&format!("W: {} H: {}", info.width, info.height));
-                }
-                _ => {
-                    println!("unknow, {}", message);
+                Err(err) => {
+                    println!("{:?}", err);
                 }
             }
         })
     };
 
-    spawn(check_clipboard(tx, state.clone()));
+    let check_clipboard_handler = spawn(check_clipboard(tx, state.clone()));
 
     pin_mut!(forward_ws, handler);
 
     select(forward_ws, handler).await;
+
+    check_clipboard_handler.abort();
 }
 
 pub async fn start(addr: String) {
     loop {
-        let result = connect_async_with_config(addr.clone(), Some(WEB_SOCKET_CONFIG)).await;
+        let result = connect_async_with_config(&addr, Some(WEB_SOCKET_CONFIG)).await;
         match result {
             Ok((ws, _)) => {
                 println!("Connected: {}", addr);
@@ -215,8 +221,10 @@ pub async fn start(addr: String) {
             }
             Err(err) => {
                 println!("{:?}", err);
-                // reconnect every 60 seconds
-                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(
+                    RETRY_CONNECT_INTERVAL_IN_SECONDS,
+                ))
+                .await;
                 println!("Reconnecting: {}...", addr);
             }
         }
