@@ -6,3 +6,5 @@ pub const WEB_SOCKET_CONFIG: WebSocketConfig = WebSocketConfig {
     max_frame_size: None,
     accept_unmasked_frames: false,
 };
+
+pub const RETRY_CONNECT_INTERVAL_IN_SECONDS: u64 = 60;
