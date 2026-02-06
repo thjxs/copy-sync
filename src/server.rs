@@ -56,7 +56,10 @@ pub async fn handle_connection(map: PeerMap, raw_stream: TcpStream, addr: Socket
 }
 
 pub async fn start(port: u16) {
-    let addr = format!("0.0.0.0:{}", port);
+    // Use IPv6 unspecified address. On systems with IPv6 dual-stack enabled,
+    // this will also accept IPv4-mapped connections. If you need to ensure
+    // both stacks on all systems, consider binding separate IPv4 and IPv6 sockets.
+    let addr = format!("[::]:{}", port);
     let state = PeerMap::new(Mutex::new(HashMap::new()));
     let server = tokio::net::TcpListener::bind(addr).await;
     let listener = server.expect("Failed to create server");
